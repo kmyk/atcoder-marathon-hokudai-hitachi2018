@@ -5,6 +5,7 @@
 #include <climits>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -118,6 +119,8 @@ next: ;
 
 template <class Generator>
 int apply_vector_min_sa(int m, vector<term_t> const & g, vector<bool> const & x, Generator & gen) {
+    if (m == 0) return apply_vector(g, x);
+
     vector<bool> w = generate_random_vector(m, gen);
     int value = apply_argumented_vector(g, x, w);
     int min_value = value;
@@ -282,9 +285,14 @@ constexpr double TLE = 10000;
 template <class Generator>
 pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen) {
     // in
-    cerr << "[*] N = " << n << endl;
-    cerr << "[*] K = " << k << endl;
-    cerr << "[*] f(1) = " << apply_all_true(f) << endl;
+#ifdef LOCAL
+    char *path = getenv("LOG");
+    if (path == nullptr) {
+        cerr << "[*] N = " << n << endl;
+        cerr << "[*] K = " << k << endl;
+        cerr << "[*] f(1) = " << apply_all_true(f) << endl;
+    }
+#endif
     sort(ALL(f), [&](term_t const & a, term_t const & b) {
         return a.v.size() < b.v.size();
     });
@@ -373,19 +381,36 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
     }
     tie(m, g) = remove_unused_newvars(n, m, g);
     g = merge_terms(n + m, g);
+    assert (not g.empty());
 
     // out
-    cerr << "[*] M = " << m << endl;
-    cerr << "[*] L = " << g.size() << endl;
-    cerr << "[*] maxcoeff = " << get_maxcoeff(g) << endl;
-    cerr << "[*] score PY = " << evaluate_score_py(m, g) << endl;
-    cerr << "[*] score PZ = " << evaluate_score_pz(m, g) << endl;
-    if (m < 100) {
-        cerr << "[*] f(1) = " << apply_all_true(f) << endl;
-        cerr << "[*] g(1) = " << apply_all_true_min_sa(n, m, g, gen) << endl;
-        cerr << "[*] score random = " << (int)evaluate_random_score(n, f, m, g, gen) << endl;
-        cerr << "[*] score allone = " << (int)evaluate_all_true_score(n, f, m, g, gen) << endl;
+#ifdef LOCAL
+    if (path == nullptr) {
+        cerr << "[*] M = " << m << endl;
+        cerr << "[*] L = " << g.size() << endl;
+        cerr << "[*] maxcoeff = " << get_maxcoeff(g) << endl;
+        cerr << "[*] score PY = " << evaluate_score_py(m, g) << endl;
+        cerr << "[*] score PZ = " << evaluate_score_pz(m, g) << endl;
+        cerr << "[*] score = " << evaluate_score(m, g, 0) << " if e_SA = 0" << endl;
+        if (m < 100) {
+            cerr << "[*] f(1) = " << apply_all_true(f) << endl;
+            cerr << "[*] g(1) = " << apply_all_true_min_sa(n, m, g, gen) << endl;
+            cerr << "[*] score random = " << (int)evaluate_random_score(n, f, m, g, gen) << endl;
+            cerr << "[*] score allone = " << (int)evaluate_all_true_score(n, f, m, g, gen) << endl;
+        }
+    } else {
+        ofstream fp(path);
+        fp << "{ \"n\": " << n;
+        fp << ", \"k\": " << k;
+        fp << ", \"m\": " << m;
+        fp << ", \"l\": " << g.size();
+        fp << ", \"maxcoeff\": " << maxcoeff;
+        fp << ", \"py\": " << evaluate_score_py(m, g);
+        fp << ", \"pz\": " << evaluate_score_pz(m, g);
+        fp << ", \"score\": " << evaluate_score(m, g, 0);
+        fp << " }" << endl;
     }
+#endif
     return make_pair(m, g);
 }
 
