@@ -64,6 +64,7 @@ term_t make_term(int c, vector<int> const & v) {
 int get_max_c(vector<term_t> const & f) {
     int max_c = 0;
     for (auto const & t : f) {
+        if (t.v.empty()) continue;  // ignore constants
         chmax(max_c, t.c);
     }
     return max_c;
@@ -365,22 +366,31 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
             int w1 = n + (m ++);
             use1(- t.c * (d - 1), w1);
             for (int x1 : t.v) {
-                use2(t.c, x1, w1);
+                use2(t.c, w1, x1);
             }
             // cerr << "[*] use " << w1 + 1 << " for the t with c = " << t.c << endl;
         } else {
-            term_t s = t;
-            while (s.v.size() >= 3) {
-                vector<int> v;
-                REP (i, s.v.size() / 2) {
-                    v.push_back(squash(s.v[2 * i], s.v[2 * i + 1]));
+            int d = t.v.size();
+            auto v = t.v;
+            shuffle(ALL(v), gen);
+            // c
+            use0(t.c);
+            // - c (1 - x1)
+            use0(- t.c);
+            use1(t.c, v[0]);
+            // - c x1 (1 - x2)
+            use1(- t.c, v[0]);
+            use2(t.c, v[0], v[1]);
+            REP3 (i, 2, d) {
+                // -c x1 x2 .. x{i - 1} (1 - xi)
+                int wi = n + (m ++);
+                use1(t.c * i, wi);
+                use1(- t.c, wi);
+                use2(t.c, wi, v[i]);
+                REP (j, i) {
+                    use2(- t.c, wi, v[j]);
                 }
-                if (s.v.size() % 2 == 1) {
-                    v.push_back(s.v.back());
-                }
-                s.v.swap(v);
             }
-            g.push_back(s);
         }
     }
     tie(m, g) = remove_unused_newvars(n, m, g);
