@@ -219,6 +219,19 @@ vector<term_t> merge_terms(int l, vector<term_t> const & g) {
     return h;
 }
 
+int get_size_to_split_value(int value, int limit) {
+    assert (value >= 0);
+    int k = 1;
+    while ((value - k + 1) / k > limit) ++ k;
+    return k;
+}
+
+vector<int> split_value_with(int value, int k) {
+    vector<int> values(k, value / k);
+    values.back() += value % k;
+    return values;
+}
+
 double evaluate_score_px(int m, vector<term_t> const & g, int delta) {
     constexpr int e = 10000;
     constexpr int t = 100;
@@ -282,15 +295,24 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
     // prepare
     int m = 0;
     vector<term_t> g;
+
+    map<int, int> coeff1;
+    map<pair<int, int>, int> coeff2;
+
     auto use0 = [&](int c) {
         g.push_back(make_term(c, {}));
     };
     auto use1 = [&](int c, int y1) {
+        coeff1[y1] += c;
         g.push_back(make_term(c, { y1 }));
     };
     auto use2 = [&](int c, int y1, int y2) {
+        coeff2[make_pair(y1, y2)] += c;
+        coeff2[make_pair(y2, y1)] += c;
         g.push_back(make_term(c, { y1, y2 }));
     };
+
+    constexpr int maxcoeff = 200;
 
     // construct
     for (auto const & t : f) {
@@ -302,17 +324,30 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
         } else if (t.c < 0) {
             // the simple quadratization of negative monomials
             int d = t.v.size();
-            int w1 = n + (m ++);
-            use1(- t.c * (d - 1), w1);
-            for (int x1 : t.v) {
-                use2(t.c, w1, x1);
+            int split = get_size_to_split_value(abs(t.c * (d - 1)), maxcoeff);
+            for (int c : split_value_with(t.c, split)) {
+                int w1 = n + (m ++);
+                use1(- c * (d - 1), w1);
+                for (int x1 : t.v) {
+                    use2(c, w1, x1);
+                }
             }
 
         } else {
             // the simple quadratization of positive monomials
             int d = t.v.size();
             auto v = t.v;
-            shuffle(ALL(v), gen);
+
+            // choose a nice pair (x1, x2)
+            constexpr int total = 100;
+            REP (iteration, total) {
+                shuffle(ALL(v), gen);
+                auto key = make_pair(v[0], v[1]);
+                if (not coeff2.count(key) or abs(coeff2[key] + t.c) < maxcoeff * (1 + (double) iteration / total)) {
+                    break;
+                }
+            }
+
             // c
             use0(t.c);
             // - c (1 - x1)
@@ -323,12 +358,15 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
             use2(t.c, v[0], v[1]);
             REP3 (i, 2, d) {
                 // -c x1 x2 .. x{i - 1} (1 - xi)
-                int wi = n + (m ++);
-                use1(t.c * i, wi);
-                use1(- t.c, wi);
-                use2(t.c, wi, v[i]);
-                REP (j, i) {
-                    use2(- t.c, wi, v[j]);
+                int split = get_size_to_split_value(abs(t.c * i), maxcoeff);
+                for (int c : split_value_with(t.c, split)) {
+                    int wi = n + (m ++);
+                    use1(c * i, wi);
+                    use1(- c, wi);
+                    use2(c, wi, v[i]);
+                    REP (j, i) {
+                        use2(- c, wi, v[j]);
+                    }
                 }
             }
         }
@@ -339,14 +377,15 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
     // out
     cerr << "[*] M = " << m << endl;
     cerr << "[*] L = " << g.size() << endl;
-    cerr << "[*] f(1) = " << apply_all_true(f) << endl;
+    cerr << "[*] maxcoeff = " << get_maxcoeff(g) << endl;
+    cerr << "[*] score PY = " << evaluate_score_py(m, g) << endl;
+    cerr << "[*] score PZ = " << evaluate_score_pz(m, g) << endl;
     if (m < 100) {
+        cerr << "[*] f(1) = " << apply_all_true(f) << endl;
         cerr << "[*] g(1) = " << apply_all_true_min_sa(n, m, g, gen) << endl;
         cerr << "[*] score random = " << (int)evaluate_random_score(n, f, m, g, gen) << endl;
         cerr << "[*] score allone = " << (int)evaluate_all_true_score(n, f, m, g, gen) << endl;
     }
-    cerr << "[*] score PY = " << evaluate_score_py(m, g) << endl;
-    cerr << "[*] score PZ = " << evaluate_score_pz(m, g) << endl;
     return make_pair(m, g);
 }
 
