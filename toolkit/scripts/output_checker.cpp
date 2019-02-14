@@ -307,6 +307,8 @@ int main(int argc, char **argv){
       double point = 0;
       if(e_SA < 0){
         std::cerr << title << std::endl;
+        std::cerr << "f(X)     : " << fxval << std::endl;
+        std::cerr << "g(X,W)   : " << gxmin << std::endl;
         std::cerr << "e_SA     : " << e_SA << std::endl;
 	return -1.0;
       }
@@ -322,6 +324,8 @@ int main(int argc, char **argv){
       
 
       std::cerr << title << std::endl;
+      std::cerr << "f(X)     : " << fxval << std::endl;
+      std::cerr << "g(X,W)   : " << gxmin << std::endl;
       std::cerr << "e_SA     : " << e_SA << std::endl;
       std::cerr << "newvars  : " << M_newvars << std::endl;
       std::cerr << "terms    : " << L_terms << std::endl;
