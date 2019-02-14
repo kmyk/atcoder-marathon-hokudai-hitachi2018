@@ -283,7 +283,7 @@ int main(int argc, char **argv){
     output.close();
     
     using Formula = std::vector< std::vector<long long int> >;
-    auto calc_score = [&](std::vector<int> X, int HN, int QS, int QL, Formula HOBO, Formula QUBO) { 
+    auto calc_score = [&](const std::string & title, std::vector<int> X, int HN, int QS, int QL, Formula HOBO, Formula QUBO) {
       long long int fxval = substitution(X, HOBO);
       long long int gxmin = minimize_qpbf(QS, X, QUBO);
       double e_SA = (double)(gxmin - fxval);
@@ -306,6 +306,8 @@ int main(int argc, char **argv){
       
       double point = 0;
       if(e_SA < 0){
+        std::cerr << title << std::endl;
+        std::cerr << "e_SA     : " << e_SA << std::endl;
 	return -1.0;
       }
       else{
@@ -319,6 +321,7 @@ int main(int argc, char **argv){
       }
       
 
+      std::cerr << title << std::endl;
       std::cerr << "e_SA     : " << e_SA << std::endl;
       std::cerr << "newvars  : " << M_newvars << std::endl;
       std::cerr << "terms    : " << L_terms << std::endl;
@@ -336,8 +339,8 @@ int main(int argc, char **argv){
       y[i] = zero_one(mt);
     }
 
-    double point1 = calc_score(y, hn, qs, ql, hobo, qubo);
-    double point2 = calc_score(z, hn, qs, ql, hobo, qubo);
+    double point1 = calc_score("random", y, hn, qs, ql, hobo, qubo);
+    double point2 = calc_score("all 1", z, hn, qs, ql, hobo, qubo);
 
     if(point1 < 0 or point2 < 0) throw INVALID_FUNCTION_VALUE;
     double point = (point1 + point2) / 2.0;
