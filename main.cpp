@@ -139,6 +139,21 @@ vector<term_t> extract_low_degree_terms(vector<term_t> const & f) {
     return g;
 }
 
+vector<term_t> extract_initial_polynomial(vector<term_t> const & f) {
+    vector<term_t> g;
+    for (auto const & t : f) {
+        if (t.v.size() <= 2) {
+            g.push_back(t);
+        } else {
+            int d = t.v.size();
+            REP (j, d) REP (i, j) {
+                g.push_back(make_term(t.c / (d * (d - 1) / 2), { i, j }));
+            }
+        }
+    }
+    return g;
+}
+
 vector<term_t> normalize_polynomial(int n, int m, vector<term_t> const & g) {
     int c0 = 0;
     vector<int> c1(n + m);
@@ -179,25 +194,27 @@ double evaluate_relaxed_score1(int m, int l, int max_c, int delta) {
     constexpr double b = 5;
     // constexpr double e = 10000;
     constexpr double t = 100;
-    double px = (1 - (double)abs(delta) / t);
+    double px = delta >= 0 ? (1 - min<double>(t, delta) / t) : 0;
+    double px1 = (1 - abs(delta) / t);
     double py = 1000 / (b * m + l + 1000.0);
     double pz = 1000 / (max_c + 1000.0);
     int penalty = (delta < 0 ? - 10000 : 0);
-    return px * py * pz + penalty;
+    return (px + 0.1 * px1) * py * pz + penalty;
 }
 
 template <class Generator>
-double evaluate_relaxed_score(vector<term_t> const & f, int m, vector<term_t> const & g, Generator & gen_) {
+double evaluate_relaxed_score(vector<term_t> const & f, int m, vector<term_t> const & g, Generator & gen) {
     int n = g.size() - m;
     int l = g.size();
     int max_c = get_max_c(g);
     double pa = evaluate_relaxed_score1(m, l, max_c, apply_all_true(g) - apply_all_true(f));
     double pb = 0;
-    constexpr int width = 100;
-    xor_shift_128 gen;
+    constexpr int width = 300;
+    xor_shift_128 fixed;
     REP (iteration, width) {
-        auto x = generate_random_vector(n, gen);
-        int delta = apply_vector_min(g, x, m) - apply_vector(f, x) - 10;
+        constexpr int margin = 0;
+        auto x = generate_random_vector(n, iteration < width ? fixed : gen);
+        int delta = apply_vector_min(g, x, m) - apply_vector(f, x) - margin;
         pb += evaluate_relaxed_score1(m, l, max_c, delta) / width;
     }
     return (pa + pb) / 2;
@@ -220,7 +237,7 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
 
     // body
     constexpr int m = 0;
-    vector<term_t> g = extract_low_degree_terms(f);
+    vector<term_t> g = extract_initial_polynomial(f);
     g = normalize_polynomial(n, m, g);
     double score = evaluate_relaxed_score(f, m, g, gen);
     cerr << "[*] score = " << score << endl;
@@ -240,19 +257,33 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
 
         // make a neighbor
         auto h = g;
-        if (not h.empty() and bernoulli_distribution(0.1)(gen)) {
+        if (not h.empty() and bernoulli_distribution(0.4)(gen)) {
             int i = uniform_int_distribution<int>(0, h.size() - 1)(gen);
             if (bernoulli_distribution(0.3)(gen)) {
+                if (h[i].v.size() == 0) continue;
                 swap(h[i], h.back());
                 h.pop_back();
             } else {
-                int c = uniform_int_distribution<int>(-20, 20)(gen);
+                int c = uniform_int_distribution<int>(-5, 8)(gen);
                 if (c == 0) continue;
                 h[i].c += c;
                 if (h[i].c == 0) continue;
             }
+        } else if (bernoulli_distribution(0.3)(gen)) {
+            int i = uniform_int_distribution<int>(0, f.size() - 1)(gen);
+            term_t t = f[i];
+            if (t.v.size() >= 3) {
+                int j = uniform_int_distribution<int>(0, t.v.size() - 1)(gen);
+                swap(t.v[0], t.v[j]);
+                int k = uniform_int_distribution<int>(1, t.v.size() - 1)(gen);
+                swap(t.v[1], t.v[k]);
+                t.v.resize(2);
+            }
+            t.c = uniform_int_distribution<int>(-5, 5)(gen);
+            h.push_back(t);
+            h = normalize_polynomial(n, m, h);
         } else {
-            int c = uniform_int_distribution<int>(-50, 100)(gen);
+            int c = uniform_int_distribution<int>(-10, 15)(gen);
             if (c == 0) continue;
             int d = uniform_int_distribution<int>(1, 2)(gen);
             vector<int> v(d);
@@ -270,8 +301,15 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
             h = normalize_polynomial(n, m, h);
         }
 
+        int one_delta = apply_all_true(h) - apply_all_true(f);
+        if (one_delta < 0) {
+            h.push_back(make_term(- one_delta, {}));
+            h = normalize_polynomial(n, m, h);
+        }
+
+
         double delta = evaluate_relaxed_score(f, m, h, gen) - score;
-        constexpr double boltzmann = 20;
+        constexpr double boltzmann = 100;
         if (delta >= 0 or bernoulli_distribution(exp(boltzmann * delta / temperature))(gen)) {
             g = h;
             score += delta;
@@ -287,6 +325,7 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
     // out
     cerr << "[*] M = " << m << endl;
     cerr << "[*] L = " << best_g.size() << endl;
+    cerr << "[*] f(1) = " << apply_all_true(f) << endl;
     cerr << "[*] g(1) = " << apply_all_true(best_g) << endl;
     cerr << "[*] score = " << highscore << endl;
     return make_pair(m, best_g);
