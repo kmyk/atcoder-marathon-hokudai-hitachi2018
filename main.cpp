@@ -110,6 +110,55 @@ next: ;
     return value;
 }
 
+int apply_argumented_vector(vector<term_t> const & g, vector<bool> const & x, vector<bool> const & w) {
+    int n = x.size();
+    int value = 0;
+    for (auto const & t : g) {
+        for (int i : t.v) {
+            if (not (i < n ? x[i] : w[i - n])) {
+                goto next;
+            }
+        }
+        value += t.c;
+next: ;
+    }
+    return value;
+}
+
+template <class Generator>
+int apply_vector_min_sa(int m, vector<term_t> const & g, vector<bool> const & x, Generator & gen) {
+    vector<bool> w = generate_random_vector(m, gen);
+    int value = apply_argumented_vector(g, x, w);
+    int min_value = value;
+
+    int total = 10 * m;
+    REP (iteration, total) {
+        double temperature = (double) (total - iteration) / total;
+
+        int i = uniform_int_distribution<int>(0, m - 1)(gen);
+        w[i] = not w[i];
+        int delta = apply_argumented_vector(g, x, w) - value;
+
+        constexpr double boltzmann = 1;
+        if (delta <= 0 or bernoulli_distribution(exp(- boltzmann * delta / temperature))(gen)) {
+            value += delta;
+            if (value < min_value) {
+                min_value = value;
+                // cerr << "[*] g(X,W) = " << min_value << " when W = (" << w << ")" << endl;
+            }
+        } else {
+            w[i] = not w[i];
+        }
+    }
+    return min_value;
+}
+
+template <class Generator>
+int apply_all_true_min_sa(int n, int m, vector<term_t> const & g, Generator & gen) {
+    vector<bool> x(n, true);
+    return apply_vector_min_sa(m, g, x, gen);
+}
+
 int apply_vector_min(vector<term_t> const & g, vector<bool> const & x, int m) {
     int n = g.size() - m;
     int min_value = INT_MAX;
@@ -154,10 +203,42 @@ vector<term_t> extract_initial_polynomial(vector<term_t> const & f) {
     return g;
 }
 
-vector<term_t> normalize_polynomial(int n, int m, vector<term_t> const & g) {
+pair<int, vector<term_t> > remove_unused_newvars(int n, int m, vector<term_t> g) {
+    // mark
+    vector<bool> used(m);
+    for (auto const & t : g) {
+        for (int v_i : t.v) {
+            if (v_i >= n) {
+                used[v_i - n] = true;
+            }
+        }
+    }
+
+    // compress
+    vector<int> rename(m, -1);
+    int updated_m = 0;
+    REP (i, m) {
+        if (used[i]) {
+            rename[i] = n + updated_m ++;
+        }
+    }
+
+    // apply
+    for (auto & t : g) {
+        for (int & v_i : t.v) {
+            if (v_i >= n) {
+                v_i = rename[v_i - n];
+            }
+        }
+    }
+    return make_pair(updated_m, g);
+}
+
+vector<term_t> merge_terms(int l, vector<term_t> const & g) {
+    // collect into buckets
     int c0 = 0;
-    vector<int> c1(n + m);
-    auto c2 = vectors(n + m, n + m, int());
+    vector<int> c1(l);
+    auto c2 = vectors(l, l, int());
     for (auto const & t : g) {
         if (t.v.size() == 0) {
             c0 += t.c;
@@ -170,19 +251,21 @@ vector<term_t> normalize_polynomial(int n, int m, vector<term_t> const & g) {
             assert (false);
         }
     }
+
+    // reconstruct
     vector<term_t> h;
     if (c0) {
         h.push_back(make_term(c0, {}));
     }
-    REP (i, n + m) {
+    REP (i, l) {
         if (c1[i]) {
             h.push_back(make_term(c1[i], { i }));
         }
     }
-    REP (i, n + m) {
-        REP (j, i) {
+    REP (j, l) {
+        REP (i, j) {
             if (c2[i][j]) {
-                h.push_back(make_term(c2[i][j], { j, i }));
+                h.push_back(make_term(c2[i][j], { i, j }));
             }
         }
     }
@@ -234,101 +317,84 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
     sort(ALL(f), [&](term_t const & a, term_t const & b) {
         return a.v.size() < b.v.size();
     });
+    for (auto & t : f) {
+        sort(ALL(t.v));
+    }
 
     // body
-    constexpr int m = 0;
-    vector<term_t> g = extract_initial_polynomial(f);
-    g = normalize_polynomial(n, m, g);
-    double score = evaluate_relaxed_score(f, m, g, gen);
-    cerr << "[*] score = " << score << endl;
+    int m = 0;
+    vector<term_t> g;
 
-    vector<term_t> best_g = g;
-    double highscore = score;
+    auto use0 = [&](int c) {
+        g.push_back(make_term(c, {}));
+    };
+    auto use1 = [&](int c, int y1) {
+        g.push_back(make_term(c, { y1 }));
+    };
+    auto use2 = [&](int c, int y1, int y2) {
+        g.push_back(make_term(c, { y1, y2 }));
+    };
 
-    double temperature = 1;
-    for (unsigned iteration = 0; ; ++ iteration) {
-        chrono::high_resolution_clock::time_point clock_end = chrono::high_resolution_clock::now();
-        auto cnt = chrono::duration_cast<chrono::milliseconds>(clock_end - clock_begin).count();
-        if (cnt >= TLE * 0.99) {
-            cerr << "iteration = " << iteration << ": done" << endl;
-            break;
-        }
-        temperature = 1 - cnt / TLE;
+    auto define = [&](int x1, int x2, int w1) {
+        constexpr int max_c = 100;
+        constexpr int c = 2 * max_c + 10;
+        constexpr int b = c + max_c + 5;
+        constexpr int a = 2 * c - b;
+        assert (b >= 0);  // when x1 = x2 = 0
+        assert (b >= c);  // when x1 = 1 and x2 = 0, or when x1 = 0 and x2 = 1
+        assert (b <= 2 * c and a + b - 2 * c == 0);  // when x1 = x2 = 1
+        assert (b - c - max_c >= 0);  // when - k w1 is used at an other place
+        assert (b - 2 * c + max_c <= 0);  // when + k w1 is used at an other place
+        use2(a, x1, x2);
+        use1(b, w1);
+        use2(- c, x1, w1);
+        use2(- c, x2, w1);
+    };
+    auto squash = [&](int x1, int x2) {
+        int w1 = n + (m ++);
+        define(x1, x2, w1);
+        // cerr << "[*] use " << w1 + 1 << " as " << x1 + 1 << " " << x2 + 1 << endl;
+        return w1;
+    };
 
-        // make a neighbor
-        auto h = g;
-        if (not h.empty() and bernoulli_distribution(0.4)(gen)) {
-            int i = uniform_int_distribution<int>(0, h.size() - 1)(gen);
-            if (bernoulli_distribution(0.3)(gen)) {
-                if (h[i].v.size() == 0) continue;
-                swap(h[i], h.back());
-                h.pop_back();
-            } else {
-                int c = uniform_int_distribution<int>(-5, 8)(gen);
-                if (c == 0) continue;
-                h[i].c += c;
-                if (h[i].c == 0) continue;
+    for (auto const & t : f) {
+        if (t.v.size() <= 2) {
+            g.push_back(t);
+        } else if (t.c < 0) {
+            int d = t.v.size();
+            int w1 = n + (m ++);
+            use1(- t.c * (d - 1), w1);
+            for (int x1 : t.v) {
+                use2(t.c, x1, w1);
             }
-        } else if (bernoulli_distribution(0.3)(gen)) {
-            int i = uniform_int_distribution<int>(0, f.size() - 1)(gen);
-            term_t t = f[i];
-            if (t.v.size() >= 3) {
-                int j = uniform_int_distribution<int>(0, t.v.size() - 1)(gen);
-                swap(t.v[0], t.v[j]);
-                int k = uniform_int_distribution<int>(1, t.v.size() - 1)(gen);
-                swap(t.v[1], t.v[k]);
-                t.v.resize(2);
-            }
-            t.c = uniform_int_distribution<int>(-5, 5)(gen);
-            h.push_back(t);
-            h = normalize_polynomial(n, m, h);
+            // cerr << "[*] use " << w1 + 1 << " for the t with c = " << t.c << endl;
         } else {
-            int c = uniform_int_distribution<int>(-10, 15)(gen);
-            if (c == 0) continue;
-            int d = uniform_int_distribution<int>(1, 2)(gen);
-            vector<int> v(d);
-            REP (i, d) {
-                while (true) {
-                    int v_i = uniform_int_distribution<int>(0, n + m - 1)(gen);
-                    if (not count(ALL(v), v_i)) {
-                        v[i] = v_i;
-                        break;
-                    }
+            term_t s = t;
+            while (s.v.size() >= 3) {
+                vector<int> v;
+                REP (i, s.v.size() / 2) {
+                    v.push_back(squash(s.v[2 * i], s.v[2 * i + 1]));
                 }
+                if (s.v.size() % 2 == 1) {
+                    v.push_back(s.v.back());
+                }
+                s.v.swap(v);
             }
-            term_t t = make_term(c, v);
-            h.push_back(t);
-            h = normalize_polynomial(n, m, h);
-        }
-
-        int one_delta = apply_all_true(h) - apply_all_true(f);
-        if (one_delta < 0) {
-            h.push_back(make_term(- one_delta, {}));
-            h = normalize_polynomial(n, m, h);
-        }
-
-
-        double delta = evaluate_relaxed_score(f, m, h, gen) - score;
-        constexpr double boltzmann = 100;
-        if (delta >= 0 or bernoulli_distribution(exp(boltzmann * delta / temperature))(gen)) {
-            g = h;
-            score += delta;
-// if (delta < 0) cerr << "[*] iteration = " << iteration << ": force = " << score << endl;
-            if (highscore < score) {
-                highscore = score;
-                best_g = g;
-                cerr << "[+] iteration = " << iteration << ": highscore = " << highscore << endl;
-            }
+            g.push_back(s);
         }
     }
+    tie(m, g) = remove_unused_newvars(n, m, g);
+    g = merge_terms(n + m, g);
 
     // out
     cerr << "[*] M = " << m << endl;
-    cerr << "[*] L = " << best_g.size() << endl;
+    cerr << "[*] L = " << g.size() << endl;
     cerr << "[*] f(1) = " << apply_all_true(f) << endl;
-    cerr << "[*] g(1) = " << apply_all_true(best_g) << endl;
-    cerr << "[*] score = " << highscore << endl;
-    return make_pair(m, best_g);
+    if (m <= 100) {
+        cerr << "[*] g(1) = " << apply_all_true_min_sa(n, m, g, gen) << endl;
+    }
+    // cerr << "[*] score = " << highscore << endl;
+    return make_pair(m, g);
 }
 
 

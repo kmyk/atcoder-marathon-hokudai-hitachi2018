@@ -14,10 +14,9 @@ run: a.out generator.out output_checker.out
 	[ -e test/A.case-0.in ] || ./generator.out test/A.case-0.in 1 ${SEED}
 	[ -e test/B.case-0.in ] || ./generator.out test/B.case-0.in 2 ${SEED}
 	[ -e test/C.case-0.in ] || ./generator.out test/C.case-0.in 3 ${SEED}
-	./a.out < test/A.case-0.in > test/A.case-0.out &
-	./a.out < test/B.case-0.in > test/B.case-0.out &
-	./a.out < test/C.case-0.in > test/C.case-0.out &
-	sleep 12
+	./a.out < test/A.case-0.in > test/A.case-0.out
+	./a.out < test/B.case-0.in > test/B.case-0.out
+	./a.out < test/C.case-0.in > test/C.case-0.out
 	-./output_checker.out test/A.case-0.in test/A.case-0.out ${SEED}
 	-./output_checker.out test/B.case-0.in test/B.case-0.out ${SEED}
 	-./output_checker.out test/C.case-0.in test/C.case-0.out ${SEED}
