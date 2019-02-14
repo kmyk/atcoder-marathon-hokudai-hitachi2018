@@ -129,6 +129,16 @@ int apply_vector_min(vector<term_t> const & g, vector<bool> const & x, int m) {
     return min_value;
 }
 
+vector<term_t> extract_low_degree_terms(vector<term_t> const & f) {
+    vector<term_t> g;
+    for (auto const & t : f) {
+        if (t.v.size() <= 2) {
+            g.push_back(t);
+        }
+    }
+    return g;
+}
+
 vector<term_t> normalize_polynomial(int n, int m, vector<term_t> const & g) {
     int c0 = 0;
     vector<int> c1(n + m);
@@ -210,11 +220,8 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
 
     // body
     constexpr int m = 0;
-    vector<term_t> g;
-    g.push_back(make_term(get_constant_term(f), {}));
-    if (g.back().c == 0) {
-        g.pop_back();
-    }
+    vector<term_t> g = extract_low_degree_terms(f);
+    g = normalize_polynomial(n, m, g);
     double score = evaluate_relaxed_score(f, m, g, gen);
     cerr << "[*] score = " << score << endl;
 
@@ -300,6 +307,7 @@ int main() {
         f[i].v.resize(d);
         REP (j, d) {
             cin >> f[i].v[j];
+            -- f[i].v[j];
         }
     }
 
