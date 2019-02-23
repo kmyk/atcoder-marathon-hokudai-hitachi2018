@@ -283,7 +283,7 @@ constexpr double TLE = 10000;
 
 
 template <class Generator>
-pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen) {
+pair<int, vector<term_t> > solve(int n, int k, vector<term_t> const & f, Generator & gen) {
     // in
 #ifdef LOCAL
     char *path = getenv("LOG");
@@ -293,12 +293,6 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
         cerr << "[*] f(1) = " << apply_all_true(f) << endl;
     }
 #endif
-    sort(ALL(f), [&](term_t const & a, term_t const & b) {
-        return a.v.size() < b.v.size();
-    });
-    for (auto & t : f) {
-        sort(ALL(t.v));
-    }
 
     // prepare
     int m = 0;
@@ -321,9 +315,25 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
     };
 
     constexpr int maxcoeff = 200;
+    constexpr int degree_to_ignore = 10;
 
     // construct
-    for (auto const & t : f) {
+    auto h = f;
+    sort(ALL(h), [&](term_t const & a, term_t const & b) {
+        return a.v.size() < b.v.size();
+    });
+    int ignored_c = 0;
+    while (not h.empty() and h.back().v.size() >= degree_to_ignore) {
+        ignored_c += h.back().c;
+        h.pop_back();
+    }
+    if (ignored_c) {
+        vector<int> v(degree_to_ignore);
+        iota(ALL(v), 0);
+        h.push_back(make_term(ignored_c, v));
+    }
+
+    for (auto const & t : h) {
 
         if (t.v.size() <= 2) {
             // the trivial case
@@ -379,6 +389,7 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> f, Generator & gen
             }
         }
     }
+
     tie(m, g) = remove_unused_newvars(n, m, g);
     g = merge_terms(n + m, g);
     assert (not g.empty());
