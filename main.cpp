@@ -314,7 +314,7 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> const & f, Generat
         g.push_back(make_term(c, { y1, y2 }));
     };
 
-    constexpr int maxcoeff = 200;
+    constexpr int maxcoeff = 500;
     constexpr int degree_to_ignore = 10;
 
     // construct
@@ -339,8 +339,7 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> const & f, Generat
             // the trivial case
             g.push_back(t);
 
-        } else if (t.c < 0) {
-            // the simple quadratization of negative monomials
+        } else if (t.c < 0) {  // reducing negative-coefficient terms
             int d = t.v.size();
             int split = get_size_to_split_value(abs(t.c * (d - 1)), maxcoeff);
             for (int c : split_value_with(t.c, split)) {
@@ -351,40 +350,41 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> const & f, Generat
                 }
             }
 
-        } else {
-            // the simple quadratization of positive monomials
+        } else {  // higher-order clique reduction
             int d = t.v.size();
-            auto v = t.v;
 
-            // choose a nice pair (x1, x2)
-            constexpr int total = 100;
-            REP (iteration, total) {
-                shuffle(ALL(v), gen);
-                auto key = make_pair(v[0], v[1]);
-                if (not coeff2.count(key) or abs(coeff2[key] + t.c) < maxcoeff * (1 + (double) iteration / total)) {
-                    break;
+            // let S_1 = \sum x_i
+            // let S_2 = \sum_i \sum_{i \lt j} x_i x_j
+            int n_d = (d - 1) / 2;
+            REP (i, n_d) {
+                if (d % 2 == 1 and i == n_d - 1) {
+                    int split = get_size_to_split_value(abs(t.c * (2 * i + 1)), maxcoeff);
+                    for (int c : split_value_with(t.c, split)) {
+                        int w_i = n + (m ++);
+                        // - w_i S_1
+                        for (int x_i : t.v) {
+                            use2(- c, w_i, x_i);
+                        }
+                        // w_i (2 i + 1)
+                        use1(c * (2 * i + 1), w_i);
+                    }
+                } else {
+                    int split = get_size_to_split_value(abs(t.c * (4 * i + 3)), maxcoeff);
+                    for (int c : split_value_with(t.c, split)) {
+                        int w_i = n + (m ++);
+                        // - 2 w_i S_1
+                        for (int x_i : t.v) {
+                            use2(- 2 * c, w_i, x_i);
+                        }
+                        // w_i (4 i + 3)
+                        use1(c * (4 * i + 3), w_i);
+                    }
                 }
             }
-
-            // c
-            use0(t.c);
-            // - c (1 - x1)
-            use0(- t.c);
-            use1(t.c, v[0]);
-            // - c x1 (1 - x2)
-            use1(- t.c, v[0]);
-            use2(t.c, v[0], v[1]);
-            REP3 (i, 2, d) {
-                // -c x1 x2 .. x{i - 1} (1 - xi)
-                int split = get_size_to_split_value(abs(t.c * i), maxcoeff);
-                for (int c : split_value_with(t.c, split)) {
-                    int wi = n + (m ++);
-                    use1(c * i, wi);
-                    use1(- c, wi);
-                    use2(c, wi, v[i]);
-                    REP (j, i) {
-                        use2(- c, wi, v[j]);
-                    }
+            // S_2
+            REP (i, d) {
+                REP (j, i) {
+                    use2(t.c, t.v[i], t.v[j]);
                 }
             }
         }
