@@ -214,6 +214,27 @@ struct quadratic_pseudo_boolean_function {  // as a trait
         }
     }
 
+    void simply_reduce_positive_monomial(term_t const & t) {
+        // c
+        use0(t.c);
+        // - c (1 - x1)
+        use0(- t.c);
+        use1(t.c, t.v[0]);
+        // - c x1 (1 - x2)
+        use1(- t.c, t.v[0]);
+        use2(t.c, t.v[0], t.v[1]);
+        REP3 (i, 2, t.v.size()) {
+            // -c x1 x2 .. x{i - 1} (1 - xi)
+            int w_i = new_variable();
+            use1(t.c * i, w_i);
+            use1(- t.c, w_i);
+            use2(t.c, w_i, t.v[i]);
+            REP (j, i) {
+                use2(- t.c, w_i, t.v[j]);
+            }
+        }
+    }
+
     void reduce_higher_order_clique(term_t const & t) {
         // let S_1 = \sum x_i
         // let S_2 = \sum_i \sum_{i \lt j} x_i x_j
@@ -545,6 +566,32 @@ struct quadratic_pseudo_boolean_function_term_matrix : public quadratic_pseudo_b
     quadratic_pseudo_boolean_function_term_list as_term_list() const {
         return as_term_list_with_split(compute_optimal_maxcoeff());
     }
+
+    term_t choose_nice_shuffle_for_simple_positive_reduction(term_t t) const {
+        assert (t.v.size() >= 2);
+        int i1 = 0;
+        int i2 = 1;
+        int y1 = t.v[i1];
+        int y2 = t.v[i2];
+        if (y1 < y2) swap(y1, y2);
+        REP (j1, t.v.size()) {
+            REP (j2, j1) {
+                int x1 = t.v[j1];
+                int x2 = t.v[j2];
+                if (x1 < x2) swap(x1, x2);
+                if (abs(c2[x1][x2] + t.c) < abs(c2[y1][y2] + t.c)) {
+                    i1 = j1;
+                    i2 = j2;
+                    y1 = x1;
+                    y2 = x2;
+                }
+            }
+        }
+        if (i2 == 0) swap(i1, i2);
+        swap(t.v[0], t.v[i1]);
+        swap(t.v[1], t.v[i2]);
+        return t;
+    }
 };
 
 
@@ -591,7 +638,9 @@ quadratic_pseudo_boolean_function_term_list solve(int n, int k, vector<term_t> c
         } else if (t.c < 0) {
             g.reduce_negative_monomial(t);
         } else {
-            g.reduce_higher_order_clique(t);
+            auto u = g.choose_nice_shuffle_for_simple_positive_reduction(t);
+            g.simply_reduce_positive_monomial(u);
+            // g.reduce_higher_order_clique(t);
         }
     }
 
