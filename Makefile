@@ -30,9 +30,25 @@ submit:
 	oj s -y https://atcoder.jp/contests/hokudai-hitachi2018/tasks/hokudai_hitachi2018_b main.cpp --no-open
 	oj s -y https://atcoder.jp/contests/hokudai-hitachi2018/tasks/hokudai_hitachi2018_c main.cpp
 
-bench: a.out generator.out output_checker.out
+BENCH=
+NUMBER=150
+bench/of: a.out generator.out output_checker.out
+	[ "${BENCH}" ]
 	[ -e test ] || mkdir test
 	[ -e log ] || mkdir log
-	for e in A B C ; do for i in `seq 100` ; do [ -e test/$$e.$$i.in ] || ./generator.out test/$$e.$$i.in $$(echo $$e | tr ABC 123) $$i ; done ; done
-	for e in A B C ; do for i in `seq 100` ; do echo test/$$e.$$i.in ; LOG=log/$$e.$$i.json ./a.out < test/$$e.$$i.in > test/$$e.$$i.out ; done ; done
-	for e in A B C ; do for i in `seq 100` ; do cat log/$$e.$$i.json | jq .score ; done | awk '{ a += $$1 } END { printf "score '$$e' = %d\n", a }' ; done
+	for i in `seq ${NUMBER}` ; do [ -e test/${BENCH}.$$i.in ] || ./generator.out test/${BENCH}.$$i.in $$(echo ${BENCH} | tr ABC 123) $$i ; done
+	for i in `seq ${NUMBER}` ; do echo test/${BENCH}.$$i.in ; LOG=log/${BENCH}.$$i.json ./a.out < test/${BENCH}.$$i.in > test/${BENCH}.$$i.out ; done
+	for i in `seq ${NUMBER}` ; do cat log/${BENCH}.$$i.json | jq .score ; done | awk '{ a += $$1 } END { printf "score '${BENCH}' = %d\n", a }'
+
+bench:
+	${MAKE} bench/a
+	${MAKE} bench/b
+	${MAKE} bench/c
+	echo ---
+	for BENCH in A B C ; do for i in `seq 100` ; do cat log/$${BENCH}.$$i.json | jq .score ; done | awk '{ a += $$1 } END { printf "score '$${BENCH}' = %d\n", a }' ; done
+bench/a:
+	${MAKE} bench/of BENCH=A
+bench/b:
+	${MAKE} bench/of BENCH=B
+bench/c:
+	${MAKE} bench/of BENCH=C
