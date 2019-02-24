@@ -356,6 +356,13 @@ struct quadratic_pseudo_boolean_function_term_list : public quadratic_pseudo_boo
             get<1>(it) = used[get<1>(it)];
         }
         m = newvars;
+
+        // sort
+        for (auto & it : c2) {
+            if (get<0>(it) > get<1>(it)) {
+                swap(get<0>(it), get<1>(it));
+            }
+        }
     }
 
     int get_newvars() const {
