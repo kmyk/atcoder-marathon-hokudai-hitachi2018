@@ -45,11 +45,15 @@ bench:
 	${MAKE} bench/a
 	${MAKE} bench/b
 	${MAKE} bench/c
-	echo ---
-	for BENCH in A B C ; do for i in `seq ${NUMBER}` ; do cat log/$${BENCH}.$$i.json | jq .score ; done | awk '{ a += $$1 } END { printf "score '$${BENCH}' = %d\n", a }' ; done
 bench/a:
 	${MAKE} bench/of BENCH=A
 bench/b:
 	${MAKE} bench/of BENCH=B
 bench/c:
 	${MAKE} bench/of BENCH=C
+
+score:
+	for BENCH in A B C ; do for i in `seq ${NUMBER}` ; do cat log/$${BENCH}.$$i.json | jq .score ; done | awk '{ a += $$1 } END { printf "score '$${BENCH}' = %d\n", a }' ; done
+
+check: output_checker.out
+	set -e ; for BENCH in A B C ; do for i in `seq ${NUMBER}` ; do echo '[*]' $${BENCH} $$i ;./output_checker.out test/$${BENCH}.$$i.in test/$${BENCH}.$$i.out 0 ; echo ; echo ; done ; done
