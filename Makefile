@@ -46,7 +46,7 @@ bench:
 	${MAKE} bench/b
 	${MAKE} bench/c
 	echo ---
-	for BENCH in A B C ; do for i in `seq 100` ; do cat log/$${BENCH}.$$i.json | jq .score ; done | awk '{ a += $$1 } END { printf "score '$${BENCH}' = %d\n", a }' ; done
+	for BENCH in A B C ; do for i in `seq ${NUMBER}` ; do cat log/$${BENCH}.$$i.json | jq .score ; done | awk '{ a += $$1 } END { printf "score '$${BENCH}' = %d\n", a }' ; done
 bench/a:
 	${MAKE} bench/of BENCH=A
 bench/b:
