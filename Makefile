@@ -13,17 +13,18 @@ generator.out: toolkit/scripts/generator.cpp
 output_checker.out: toolkit/scripts/output_checker.cpp
 	${CXX} ${CXXFLAGS} -o $@ $<
 
+RUN=0
 run: a.out generator.out output_checker.out
 	[ -e test ] || mkdir test
-	[ -e test/A.0.in ] || ./generator.out test/A.0.in 1 0
-	[ -e test/B.0.in ] || ./generator.out test/B.0.in 2 0
-	[ -e test/C.0.in ] || ./generator.out test/C.0.in 3 0
-	./a.out < test/A.0.in > test/A.0.out
-	./a.out < test/B.0.in > test/B.0.out
-	./a.out < test/C.0.in > test/C.0.out
-	-./output_checker.out test/A.0.in test/A.0.out 0
-	-./output_checker.out test/B.0.in test/B.0.out 0
-	-./output_checker.out test/C.0.in test/C.0.out 0
+	[ -e test/A.${RUN}.in ] || ./generator.out test/A.${RUN}.in 1 ${RUN}
+	[ -e test/B.${RUN}.in ] || ./generator.out test/B.${RUN}.in 2 ${RUN}
+	[ -e test/C.${RUN}.in ] || ./generator.out test/C.${RUN}.in 3 ${RUN}
+	./a.out < test/A.${RUN}.in > test/A.${RUN}.out
+	./a.out < test/B.${RUN}.in > test/B.${RUN}.out
+	./a.out < test/C.${RUN}.in > test/C.${RUN}.out
+	-./output_checker.out test/A.${RUN}.in test/A.${RUN}.out 0
+	-./output_checker.out test/B.${RUN}.in test/B.${RUN}.out 0
+	-./output_checker.out test/C.${RUN}.in test/C.${RUN}.out 0
 
 submit:
 	oj s -y https://atcoder.jp/contests/hokudai-hitachi2018/tasks/hokudai_hitachi2018_a main.cpp --no-open
