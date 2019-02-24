@@ -30,6 +30,8 @@ template <class T, class U> inline void chmin(T & a, U const & b) { a = min<T>(a
 template <typename X, typename T> auto vectors(X x, T a) { return vector<T>(x, a); }
 template <typename X, typename Y, typename Z, typename... Zs> auto vectors(X x, Y y, Z z, Zs... zs) { auto cont = vectors(y, z, zs...); return vector<decltype(cont)>(x, cont); }
 template <typename T> ostream & operator << (ostream & out, vector<T> const & xs) { REP (i, int(xs.size()) - 1) out << xs[i] << ' '; if (not xs.empty()) out << xs.back(); return out; }
+template <typename T> T gcd(T a, T b) { while (a) { b %= a; swap(a, b); } return b; }
+template <typename T> T lcm(T a, T b) { return a / gcd(a, b) * b; }
 
 class xor_shift_128 {
 public:
@@ -153,73 +155,217 @@ int apply_all_true_min_sa(int n, int m, vector<term_t> const & g, Generator & ge
     return apply_vector_min_sa(m, g, x, gen);
 }
 
-pair<int, vector<term_t> > remove_unused_newvars(int n, int m, vector<term_t> g) {
-    // mark
-    vector<bool> used(m);
-    for (auto const & t : g) {
-        for (int v_i : t.v) {
-            if (v_i >= n) {
-                used[v_i - n] = true;
-            }
-        }
-    }
-
-    // compress
-    vector<int> rename(m, -1);
-    int updated_m = 0;
-    REP (i, m) {
-        if (used[i]) {
-            rename[i] = n + updated_m ++;
-        }
-    }
-
-    // apply
-    for (auto & t : g) {
-        for (int & v_i : t.v) {
-            if (v_i >= n) {
-                v_i = rename[v_i - n];
-            }
-        }
-    }
-    return make_pair(updated_m, g);
+double evaluate_score_px(int delta) {
+    constexpr int e = 10000;
+    constexpr int t = 100;
+    if (delta < 0) return - INFINITY;
+    return e * (1 - min<double>(t, delta) / t);
+}
+double evaluate_score_py(int m, int l) {
+    constexpr int b = 5;
+    return 1000 / (b * m + l + 1000.0);
+}
+double evaluate_score_pz(int maxcoeff) {
+    return 1000 / (maxcoeff + 1000.0);
 }
 
-vector<term_t> merge_terms(int l, vector<term_t> const & g) {
-    // collect into buckets
-    int c0 = 0;
-    vector<int> c1(l);
-    auto c2 = vectors(l, l, int());
-    for (auto const & t : g) {
+struct quadratic_pseudo_boolean_function {  // as a trait
+    virtual ~quadratic_pseudo_boolean_function() = default;
+    virtual int new_variable() = 0;
+    virtual void use0(int c) = 0;
+    virtual void use1(int c, int y1) = 0;
+    virtual void use2(int c, int y1, int y2) = 0;
+    virtual int get_newvars() const = 0;
+    virtual int get_terms() const = 0;
+    virtual int get_maxcoeff() const = 0;
+    virtual double get_score_py() const {
+        return evaluate_score_py(get_newvars(), get_terms());
+    }
+    virtual double get_score_pz() const {
+        return evaluate_score_pz(get_maxcoeff());
+    }
+    virtual int get_score() const {
+        constexpr int a = 10000;
+        double px = evaluate_score_px(0);
+        double py = get_score_py();
+        double pz = get_score_pz();
+        return a * px * py * pz;
+    }
+
+    void use_term(term_t const & t) {
         if (t.v.size() == 0) {
-            c0 += t.c;
+            use0(t.c);
         } else if (t.v.size() == 1) {
-            c1[t.v[0]] += t.c;
+            use1(t.c, t.v[0]);
         } else if (t.v.size() == 2) {
-            c2[t.v[0]][t.v[1]] += t.c;
-            c2[t.v[1]][t.v[0]] += t.c;
+            use2(t.c, t.v[0], t.v[1]);
         } else {
             assert (false);
         }
     }
 
-    // reconstruct
-    vector<term_t> h;
-    if (c0) {
-        h.push_back(make_term(c0, {}));
-    }
-    REP (i, l) {
-        if (c1[i]) {
-            h.push_back(make_term(c1[i], { i }));
+    void reduce_negative_monomial(term_t const & t) {
+        assert (t.c < 0);
+        int d = t.v.size();
+        int w1 = new_variable();
+        use1(- t.c * (d - 1), w1);
+        for (int x1 : t.v) {
+            use2(t.c, w1, x1);
         }
     }
-    REP (j, l) {
-        REP (i, j) {
-            if (c2[i][j]) {
-                h.push_back(make_term(c2[i][j], { i, j }));
+
+    void reduce_higher_order_clique(term_t const & t) {
+        // let S_1 = \sum x_i
+        // let S_2 = \sum_i \sum_{i \lt j} x_i x_j
+        int d = t.v.size();
+        int n_d = (d - 1) / 2;
+
+        REP (i, n_d) {
+            int w_i = new_variable();
+            if (d % 2 == 1 and i == n_d - 1) {
+                // - w_i S_1
+                for (int x_i : t.v) {
+                    use2(- t.c, w_i, x_i);
+                }
+                // w_i (2 i + 1)
+                use1(t.c * (2 * i + 1), w_i);
+            } else {
+                // - 2 w_i S_1
+                for (int x_i : t.v) {
+                    use2(- 2 * t.c, w_i, x_i);
+                }
+                // w_i (4 i + 3)
+                use1(t.c * (4 * i + 3), w_i);
+            }
+        }
+        // S_2
+        REP (i, d) {
+            REP (j, i) {
+                use2(t.c, t.v[i], t.v[j]);
             }
         }
     }
-    return h;
+};
+
+struct quadratic_pseudo_boolean_function_term_list : public quadratic_pseudo_boolean_function {
+    int n;
+    int m;
+    int c0;
+    vector<pair<int, int> > c1;  // [(y1, c)]
+    vector<tuple<int, int, int> > c2;  // [(y1, y2, c)]
+    quadratic_pseudo_boolean_function_term_list(int n_) {
+        n = n_;
+        m = 0;
+        c0 = 0;
+    }
+
+    int new_variable() {
+        return n + (m ++);
+    }
+
+    void use0(int c) {
+        assert (c != 0);
+        c0 += c;
+    }
+    void use1(int c, int y1) {
+        assert (c != 0);
+        c1.emplace_back(y1, c);
+    }
+    void use2(int c, int y1, int y2) {
+        assert (c != 0);
+        if (y1 > y2) swap(y1, y2);
+        c2.emplace_back(y1, y2, c);
+    }
+
+    void normalize() {
+        // c1
+        vector<pair<int, int> > c1_;
+        sort(ALL(c1));
+        for (auto it : c1) {
+            if (not c1_.empty() and c1_.back().first == it.first) {
+                c1_.back().second += it.second;
+                if (c1_.back().second == 0) {
+                    c1_.pop_back();
+                }
+            } else {
+                c1_.push_back(it);
+            }
+        }
+        c1.swap(c1_);
+
+        // c2
+        vector<tuple<int, int, int> > c2_;
+        sort(ALL(c2));
+        for (auto it : c2) {
+            if (not c2_.empty() and get<0>(c2_.back()) == get<0>(it) and get<1>(c2_.back()) == get<1>(it)) {
+                get<2>(c2_.back()) += get<2>(it);
+                if (get<2>(c2_.back()) == 0) {
+                    c2_.pop_back();
+                }
+            } else {
+                c2_.push_back(it);
+            }
+        }
+        c2.swap(c2_);
+
+        // remove unused variables
+        vector<int> used(n + m, -1);
+        REP (i, n) {
+            used[i] = i;
+        }
+        int newvars = 0;
+        for (auto it : c1) {
+            if (used[it.first] == -1) {
+                used[it.first] = n + (newvars ++);
+            }
+        }
+        for (auto it : c2) {
+            if (used[get<0>(it)] == -1) {
+                used[get<0>(it)] = n + (newvars ++);
+            }
+            if (used[get<1>(it)] == -1) {
+                used[get<1>(it)] = n + (newvars ++);
+            }
+        }
+        for (auto & it : c1) {
+            it.first = used[it.first];
+        }
+        for (auto & it : c2) {
+            get<0>(it) = used[get<0>(it)];
+            get<1>(it) = used[get<1>(it)];
+        }
+        m = newvars;
+    }
+
+    int get_newvars() const {
+        return m;
+    }
+    int get_terms() const {
+        return (c0 != 0) + c1.size() + c2.size();
+    }
+    int get_maxcoeff() const {
+        int maxcoeff = abs(c0);
+        for (auto it : c1) {
+            chmax(maxcoeff, it.second);
+        }
+        for (auto it : c2) {
+            chmax(maxcoeff, get<2>(it));
+        }
+        return maxcoeff;
+    }
+};
+ostream & operator << (ostream & out, quadratic_pseudo_boolean_function_term_list const & a) {
+    out << a.n + a.m << ' ' << a.get_terms();
+    if (a.c0) {
+        out << endl << 0 << ' ' << a.c0;
+    }
+    for (auto it : a.c1) {
+        out << endl << 1 << ' ' << it.second << ' ' << it.first + 1;
+    }
+    for (auto it : a.c2) {
+        out << endl << 2 << ' ' << get<2>(it) << ' ' << get<0>(it) + 1 << ' ' << get<1>(it) + 1;
+    }
+    return out;
 }
 
 int get_size_to_split_value(int value, int limit) {
@@ -231,59 +377,183 @@ int get_size_to_split_value(int value, int limit) {
 
 vector<int> split_value_with(int value, int k) {
     vector<int> values(k, value / k);
-    values.back() += value % k;
+    REP (i, abs(value % k)) {
+        values[i] += (value >= 0 ? 1 : -1);
+    }
     return values;
 }
 
-double evaluate_score_px(int m, vector<term_t> const & g, int delta) {
-    constexpr int e = 10000;
-    constexpr int t = 100;
-    if (delta < 0) return - INFINITY;
-    return e * (1 - min<double>(t, delta) / t);
-}
-double evaluate_score_py(int m, vector<term_t> const & g) {
-    constexpr int b = 5;
-    int l = g.size();
-    return 1000 / (b * m + l + 1000.0);
-}
-double evaluate_score_pz(int m, vector<term_t> const & g) {
-    int maxcoeff = get_maxcoeff(g);
-    return 1000 / (maxcoeff + 1000.0);
-}
-double evaluate_score(int m, vector<term_t> const & g, int delta) {
-    constexpr int a = 10000;
-    double px = evaluate_score_px(m, g, delta);
-    double py = evaluate_score_py(m, g);
-    double pz = evaluate_score_pz(m, g);
-    return a * px * py * pz;
+vector<int> split_value(int value, int limit) {
+    int split = get_size_to_split_value(abs(value), limit);
+    auto values = split_value_with(value, split);
+    values.erase(remove(ALL(values), 0), values.end());
+    return values;
 }
 
-template <class Generator>
-double evaluate_all_true_score(int n, vector<term_t> const & f, int m, vector<term_t> const & g, Generator & gen) {
-    int delta = apply_all_true_min_sa(n, m, g, gen) - apply_all_true(f);
-    double pa = evaluate_score(m, g, delta);
-    return pa;
-}
-
-template <class Generator>
-double evaluate_random_score(int n, vector<term_t> const & f, int m, vector<term_t> const & g, Generator & gen) {
-    double pb = 0;
-    constexpr int width = 10;
-    REP (iteration, width) {
-        auto x = generate_random_vector(n, gen);
-        int delta = apply_vector_min_sa(m, g, x, gen) - apply_vector(f, x);
-        pb += evaluate_score(m, g, delta) / width;
+struct quadratic_pseudo_boolean_function_term_matrix : public quadratic_pseudo_boolean_function {
+    int n;
+    int m;  // or newvars
+    int c0;
+    vector<int> c1;  // y1 -> c
+    vector<vector<int> > c2;  // y2 -> y1 -> c where y1 <= y2
+    quadratic_pseudo_boolean_function_term_matrix(int n_) {
+        n = n_;
+        m = 0;
+        c0 = 0;
+        c1.resize(n);
+        c2.resize(n);
+        REP (i, n) {
+            c2[i].resize(i + 1);
+        }
     }
-    return pb;
-}
+
+    int new_variable() {
+        c1.emplace_back(0);
+        c2.emplace_back(n, 0);
+        return n + (m ++);
+    }
+
+    void use0(int c) {
+        assert (c != 0);
+        c0 += c;
+    }
+    void use1(int c, int y1) {
+        assert (c != 0);
+        c1[y1] += c;
+    }
+    void use2(int c, int y1, int y2) {
+        assert (c != 0);
+        if (y1 > y2) swap(y1, y2);
+        assert (y1 < n);
+        c2[y2][y1] += c;
+    }
+
+    int get_newvars() const { assert (false); }
+    int get_terms() const { assert (false); }
+    int get_maxcoeff() const { assert (false); }
+
+    void print() const {
+        fprintf(stderr, "%4d:%4d\n", -1, c0);
+        REP (i, n + m) {
+            fprintf(stderr, "%4d:%4d", i, c1[i]);
+            REP (j, min(i + 1, n)) {
+                fprintf(stderr, "%4d", c2[i][j]);
+            }
+            fprintf(stderr, "\n");
+        }
+    }
+
+    int compute_optimal_maxcoeff() const {
+        int fixed_maxcoeff = 20;  // the non-zero value is a margin for safety
+        REP (i, n) {
+            if (c1[i] > 0) {
+                chmax(fixed_maxcoeff, abs(c1[i]));
+            }
+            REP (j, i + 1) {
+                chmax(fixed_maxcoeff, abs(c2[i][j]));
+            }
+        }
+
+        int optimal_maxcoeff = -1;
+        int optimal_score = -1;
+        for (int delta = 0; delta < 1000; delta += 10) {
+            int maxcoeff = fixed_maxcoeff + delta;
+            int score = as_term_list_with_split(maxcoeff).get_score();
+            if (optimal_score < score) {
+                optimal_maxcoeff = maxcoeff;
+                optimal_score = score;
+            }
+        }
+        return optimal_maxcoeff;
+    }
+
+    quadratic_pseudo_boolean_function_term_list as_term_list_with_split(int maxcoeff) const {
+        quadratic_pseudo_boolean_function_term_list other(n);
+
+        // original variables of c0
+        if (c0) {
+            other.use0(c0);
+        }
+
+        // original positive variables of c1
+        REP (i, n) if (c1[i] > 0) {
+            other.use1(c1[i], i);
+        }
+
+        // original variables of c2
+        REP (i, n) REP (j, i + 1) if (c2[i][j]) {
+            other.use2(c2[i][j], i, j);
+        }
+
+        {  // original negative variable for c1
+            // make shared new variables
+            int max_c = 0;
+            REP (i, n) if (c1[i] < 0) {
+                chmax(max_c, abs(c1[i]));
+            }
+            int max_split = get_size_to_split_value(max_c, maxcoeff);
+            vector<int> w(max_split);
+            REP (k, max_split) {
+                w[k] = other.new_variable();
+            }
+
+            // use
+            REP (i, n) if (c1[i] < 0) {
+                int split = get_size_to_split_value(abs(c1[i]), maxcoeff);
+                auto values = split_value_with(c1[i], split);
+                REP (k, split) if (values[k]) {
+                    other.use2(values[k], i, w[k]);
+                }
+            }
+        }
+
+        // new variables
+        REP3 (i, n, n + m) {
+            // make split new variables
+            int max_c = abs(c1[i]);
+            int div = abs(c1[i]);
+            REP (j, n) {
+                chmax(max_c, abs(c2[i][j]));
+                div = gcd(div, abs(c2[i][j]));
+            }
+            int split = get_size_to_split_value(max_c, maxcoeff);
+            vector<int> w(split);
+            REP (k, split) {
+                w[k] = other.new_variable();
+            }
+            auto values = split_value_with(div, split);  // NOTE: here you must use `div` to avoid errors
+
+            // use for c1
+            if (c1[i]) {
+                REP (k, split) if (values[k]) {
+                    other.use1(values[k] * c1[i] / div, w[k]);
+                }
+            }
+
+            // use for c2
+            REP (j, n) if (c2[i][j]) {
+                REP (k, split) if (values[k]) {
+                    other.use2(values[k] * c2[i][j] / div, w[k], j);
+                }
+            }
+        }
+
+        other.normalize();
+        return other;
+    }
+
+    quadratic_pseudo_boolean_function_term_list as_term_list() const {
+        return as_term_list_with_split(compute_optimal_maxcoeff());
+    }
+};
+
 
 chrono::high_resolution_clock::time_point clock_begin;
 // constexpr double TLE = 30000;
 constexpr double TLE = 10000;
 
-
 template <class Generator>
-pair<int, vector<term_t> > solve(int n, int k, vector<term_t> const & f, Generator & gen) {
+quadratic_pseudo_boolean_function_term_list solve(int n, int k, vector<term_t> const & f, Generator & gen) {
     // in
 #ifdef LOCAL
     char *path = getenv("LOG");
@@ -295,134 +565,66 @@ pair<int, vector<term_t> > solve(int n, int k, vector<term_t> const & f, Generat
 #endif
 
     // prepare
-    int m = 0;
-    vector<term_t> g;
+    quadratic_pseudo_boolean_function_term_matrix g(n);
 
-    map<int, int> coeff1;
-    map<pair<int, int>, int> coeff2;
-
-    auto use0 = [&](int c) {
-        g.push_back(make_term(c, {}));
-    };
-    auto use1 = [&](int c, int y1) {
-        coeff1[y1] += c;
-        g.push_back(make_term(c, { y1 }));
-    };
-    auto use2 = [&](int c, int y1, int y2) {
-        coeff2[make_pair(y1, y2)] += c;
-        coeff2[make_pair(y2, y1)] += c;
-        g.push_back(make_term(c, { y1, y2 }));
-    };
-
-    constexpr int maxcoeff = 500;
+    // ignore
     constexpr int degree_to_ignore = 10;
-
-    // construct
-    auto h = f;
-    sort(ALL(h), [&](term_t const & a, term_t const & b) {
+    auto f1 = f;
+    sort(ALL(f1), [&](term_t const & a, term_t const & b) {
         return a.v.size() < b.v.size();
     });
     int ignored_c = 0;
-    while (not h.empty() and h.back().v.size() >= degree_to_ignore) {
-        ignored_c += h.back().c;
-        h.pop_back();
+    while (not f1.empty() and f1.back().v.size() >= degree_to_ignore) {
+        ignored_c += f1.back().c;
+        f1.pop_back();
     }
     if (ignored_c) {
         vector<int> v(degree_to_ignore);
         iota(ALL(v), 0);
-        h.push_back(make_term(ignored_c, v));
+        f1.push_back(make_term(ignored_c, v));
     }
 
-    for (auto const & t : h) {
-
+    // construct
+    for (auto const & t : f1) {
         if (t.v.size() <= 2) {
-            // the trivial case
-            g.push_back(t);
-
-        } else if (t.c < 0) {  // reducing negative-coefficient terms
-            int d = t.v.size();
-            int split = get_size_to_split_value(abs(t.c * (d - 1)), maxcoeff);
-            for (int c : split_value_with(t.c, split)) {
-                int w1 = n + (m ++);
-                use1(- c * (d - 1), w1);
-                for (int x1 : t.v) {
-                    use2(c, w1, x1);
-                }
-            }
-
-        } else {  // higher-order clique reduction
-            int d = t.v.size();
-
-            // let S_1 = \sum x_i
-            // let S_2 = \sum_i \sum_{i \lt j} x_i x_j
-            int n_d = (d - 1) / 2;
-            REP (i, n_d) {
-                if (d % 2 == 1 and i == n_d - 1) {
-                    int split = get_size_to_split_value(abs(t.c * (2 * i + 1)), maxcoeff);
-                    for (int c : split_value_with(t.c, split)) {
-                        int w_i = n + (m ++);
-                        // - w_i S_1
-                        for (int x_i : t.v) {
-                            use2(- c, w_i, x_i);
-                        }
-                        // w_i (2 i + 1)
-                        use1(c * (2 * i + 1), w_i);
-                    }
-                } else {
-                    int split = get_size_to_split_value(abs(t.c * (4 * i + 3)), maxcoeff);
-                    for (int c : split_value_with(t.c, split)) {
-                        int w_i = n + (m ++);
-                        // - 2 w_i S_1
-                        for (int x_i : t.v) {
-                            use2(- 2 * c, w_i, x_i);
-                        }
-                        // w_i (4 i + 3)
-                        use1(c * (4 * i + 3), w_i);
-                    }
-                }
-            }
-            // S_2
-            REP (i, d) {
-                REP (j, i) {
-                    use2(t.c, t.v[i], t.v[j]);
-                }
-            }
+            g.use_term(t);
+        } else if (t.c < 0) {
+            g.reduce_negative_monomial(t);
+        } else {
+            g.reduce_higher_order_clique(t);
         }
     }
 
-    tie(m, g) = remove_unused_newvars(n, m, g);
-    g = merge_terms(n + m, g);
-    assert (not g.empty());
-
     // out
+    auto g1 = g.as_term_list();
 #ifdef LOCAL
     if (path == nullptr) {
-        cerr << "[*] M = " << m << endl;
-        cerr << "[*] L = " << g.size() << endl;
-        cerr << "[*] maxcoeff = " << get_maxcoeff(g) << endl;
-        cerr << "[*] score PY = " << evaluate_score_py(m, g) << endl;
-        cerr << "[*] score PZ = " << evaluate_score_pz(m, g) << endl;
-        cerr << "[*] score = " << evaluate_score(m, g, 0) << " if e_SA = 0" << endl;
-        if (m < 100) {
-            cerr << "[*] f(1) = " << apply_all_true(f) << endl;
-            cerr << "[*] g(1) = " << apply_all_true_min_sa(n, m, g, gen) << endl;
-            cerr << "[*] score random = " << (int)evaluate_random_score(n, f, m, g, gen) << endl;
-            cerr << "[*] score allone = " << (int)evaluate_all_true_score(n, f, m, g, gen) << endl;
+        cerr << "[*] M = " << g1.get_newvars() << endl;
+        cerr << "[*] L = " << g1.get_terms() << endl;
+        cerr << "[*] maxcoeff = " << g1.get_maxcoeff() << endl;
+        cerr << "[*] score PY = " << g1.get_score_py() << endl;
+        cerr << "[*] score PZ = " << g1.get_score_pz() << endl;
+        cerr << "[*] score = " << g1.get_score() << " if e_SA = 0" << endl;
+        if (g1.get_newvars() < 100) {
+            // cerr << "[*] f(1) = " << apply_all_true(f) << endl;
+            // cerr << "[*] g(1) = " << apply_all_true_min_sa(n, m, g, gen) << endl;
+            // cerr << "[*] score random = " << (int)evaluate_random_score(n, f, m, g, gen) << endl;
+            // cerr << "[*] score allone = " << (int)evaluate_all_true_score(n, f, m, g, gen) << endl;
         }
     } else {
         ofstream fp(path);
         fp << "{ \"n\": " << n;
         fp << ", \"k\": " << k;
-        fp << ", \"m\": " << m;
-        fp << ", \"l\": " << g.size();
-        fp << ", \"maxcoeff\": " << maxcoeff;
-        fp << ", \"py\": " << evaluate_score_py(m, g);
-        fp << ", \"pz\": " << evaluate_score_pz(m, g);
-        fp << ", \"score\": " << evaluate_score(m, g, 0);
+        fp << ", \"m\": " << g1.get_newvars();
+        fp << ", \"l\": " << g1.get_terms();
+        fp << ", \"maxcoeff\": " << g1.get_maxcoeff();
+        fp << ", \"py\": " << g1.get_score_py();
+        fp << ", \"pz\": " << g1.get_score_pz();
+        fp << ", \"score\": " << g1.get_score();
         fp << " }" << endl;
     }
 #endif
-    return make_pair(m, g);
+    return g1;
 }
 
 
@@ -445,17 +647,9 @@ int main() {
     }
 
     // solve
-    int m; vector<term_t> g;
-    tie(m, g) = solve(n, k, f, gen);
+    auto qpbf = solve(n, k, f, gen);
 
     // output
-    cout << n + m << ' ' << g.size() << endl;
-    for (auto const & t : g) {
-        cout << t.v.size() << ' ' << t.c;
-        for (int v_j : t.v) {
-            cout << ' ' << v_j + 1;
-        }
-        cout << endl;
-    }
+    cout << qpbf << endl;
     return 0;
 }
