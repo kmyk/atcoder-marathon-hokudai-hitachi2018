@@ -639,16 +639,26 @@ quadratic_pseudo_boolean_function_term_list solve(int n, int k, vector<term_t> c
     }
 
     // construct
-    for (auto const & t : f1) {
-        if (t.v.size() <= 2) {
-            g.use_term(t);
-        } else if (t.c < 0) {
-            g.reduce_negative_monomial(t);
-        } else {
-            auto u = g.choose_nice_shuffle_for_simple_positive_reduction(t);
-            g.simply_reduce_positive_monomial(u);
-            // g.reduce_higher_order_clique(t);
+    while (not f1.empty()) {
+        // trivial part
+        vector<term_t> f2;
+        for (auto const & t : f1) {
+            if (t.v.size() <= 2) {
+                g.use_term(t);
+            } else if (t.c < 0) {
+                g.reduce_negative_monomial(t);
+            } else {
+                f2.push_back(t);
+            }
         }
+        f1.swap(f2);
+        if (f1.empty()) break;
+
+        auto t = f1.back();
+        f1.pop_back();
+        shuffle(ALL(t.v), gen);
+        g.simply_reduce_positive_monomial(t);
+        // g.reduce_higher_order_clique(t);
     }
 
     // out
