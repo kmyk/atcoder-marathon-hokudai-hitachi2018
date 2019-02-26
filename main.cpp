@@ -266,6 +266,20 @@ struct quadratic_pseudo_boolean_function {  // as a trait
             }
         }
     }
+
+    term_t split_common_parts(term_t t, int x1, int w1) {
+        assert (t.c > 0 and t.v.size() >= 3);
+        auto it = find(ALL(t.v), x1);
+        assert (it != t.v.end());
+        use2(t.c, x1, w1);
+        *it = w1;
+        t.c *= -1;
+        reduce_negative_monomial(t);
+        t.c *= -1;
+        swap(*it, t.v.back());
+        t.v.pop_back();
+        return t;
+    }
 };
 
 struct quadratic_pseudo_boolean_function_term_list : public quadratic_pseudo_boolean_function {
@@ -424,6 +438,7 @@ struct quadratic_pseudo_boolean_function_term_matrix : public quadratic_pseudo_b
     int c0;
     vector<int> c1;  // y1 -> c
     vector<vector<int> > c2;  // y2 -> y1 -> c where y1 <= y2
+    map<pair<int, int>, int> c2w;
     quadratic_pseudo_boolean_function_term_matrix(int n_) {
         n = n_;
         m = 0;
@@ -452,8 +467,15 @@ struct quadratic_pseudo_boolean_function_term_matrix : public quadratic_pseudo_b
     void use2(int c, int y1, int y2) {
         assert (c != 0);
         if (y1 > y2) swap(y1, y2);
-        assert (y1 < n);
-        c2[y2][y1] += c;
+        if (y1 < n) {
+            c2[y2][y1] += c;
+        } else {
+            auto key = make_pair(y1, y2);
+            c2w[key] += c;
+            if (c2w[key] == 0) {
+                c2w.erase(key);
+            }
+        }
     }
 
     int get_newvars() const { assert (false); }
@@ -536,6 +558,7 @@ struct quadratic_pseudo_boolean_function_term_matrix : public quadratic_pseudo_b
         }
 
         // new variables
+        map<int, vector<pair<int, int> > > added;
         REP3 (i, n, n + m) {
             // make split new variables
             int max_c = abs(c1[i]);
@@ -543,6 +566,21 @@ struct quadratic_pseudo_boolean_function_term_matrix : public quadratic_pseudo_b
             REP (j, n) {
                 chmax(max_c, abs(c2[i][j]));
                 div = gcd(div, abs(c2[i][j]));
+            }
+            REP3 (j, i + 1, n + m) {
+                auto it = c2w.find(make_pair(i, j));
+                if (it != c2w.end()) {
+                    int c = it->second;
+                    chmax(max_c, abs(c));
+                    div = gcd(div, abs(c));
+                }
+            }
+            if (added.count(i)) {
+                for (auto t : added[i]) {
+                    int j, c; tie(j, c) = t;
+                    chmax(max_c, abs(c));
+                    div = gcd(div, abs(c));
+                }
             }
             int split = get_size_to_split_value(max_c, maxcoeff);
             vector<int> w(split);
@@ -562,6 +600,27 @@ struct quadratic_pseudo_boolean_function_term_matrix : public quadratic_pseudo_b
             REP (j, n) if (c2[i][j]) {
                 REP (k, split) if (values[k]) {
                     other.use2(values[k] * c2[i][j] / div, w[k], j);
+                }
+            }
+
+            // use for c2w
+            REP3 (j, i + 1, n + m) {
+                auto it = c2w.find(make_pair(i, j));
+                if (it != c2w.end()) {
+                    int c = it->second;
+                    REP (k, split) if (values[k]) {
+                        added[j].emplace_back(w[k], values[k] * c / div);
+                    }
+                }
+            }
+
+            // use for added
+            if (added.count(i)) {
+                for (auto t : added[i]) {
+                    int j, c; tie(j, c) = t;
+                    REP (k, split) if (values[k]) {
+                        other.use2(values[k] * c / div, w[k], j);
+                    }
                 }
             }
         }
@@ -654,11 +713,27 @@ quadratic_pseudo_boolean_function_term_list solve(int n, int k, vector<term_t> c
         f1.swap(f2);
         if (f1.empty()) break;
 
-        auto t = f1.back();
-        f1.pop_back();
-        shuffle(ALL(t.v), gen);
-        g.simply_reduce_positive_monomial(t);
-        // g.reduce_higher_order_clique(t);
+        if (bernoulli_distribution(0.5)(gen)) {
+            int x_1 = f1.back().v.back();
+            int w_1 = g.new_variable();
+            int sum_c = 0;
+            for (auto & t : f1) {
+                if (find(ALL(t.v), x_1) != t.v.end()) {
+                    sum_c += abs(t.c);
+                    if (sum_c >= 300) break;
+                    t = g.split_common_parts(t, x_1, w_1);
+                }
+            }
+        } else {
+            auto t = f1.back();
+            f1.pop_back();
+            shuffle(ALL(t.v), gen);
+            if (bernoulli_distribution(0.99)(gen)) {
+                g.simply_reduce_positive_monomial(t);
+            } else {
+                g.reduce_higher_order_clique(t);
+            }
+        }
     }
 
     // out
