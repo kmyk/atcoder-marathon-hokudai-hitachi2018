@@ -622,18 +622,22 @@ quadratic_pseudo_boolean_function_term_list solve(int n, int k, vector<term_t> c
     quadratic_pseudo_boolean_function_term_matrix g(n);
 
     // ignore
-    constexpr int degree_to_ignore = 10;
-    auto f1 = f;
-    sort(ALL(f1), [&](term_t const & a, term_t const & b) {
-        return a.v.size() < b.v.size();
-    });
+    constexpr int degree_to_ignore_positive = 7;
+    constexpr int degree_to_ignore_negative = 6;
+    vector<term_t> f1;
     int ignored_c = 0;
-    while (not f1.empty() and f1.back().v.size() >= degree_to_ignore) {
-        ignored_c += f1.back().c;
-        f1.pop_back();
+    for (auto const & t : f) {
+        if (t.c > 0 and t.v.size() >= degree_to_ignore_positive) {
+            ignored_c += t.c;
+        } else if (t.c < 0 and t.v.size() >= degree_to_ignore_negative) {
+            ignored_c += t.c;
+        } else {
+            f1.push_back(t);
+        }
     }
     if (ignored_c) {
-        vector<int> v(degree_to_ignore);
+        int d = min(n, min(degree_to_ignore_positive, degree_to_ignore_negative));
+        vector<int> v(d);
         iota(ALL(v), 0);
         f1.push_back(make_term(ignored_c, v));
     }
