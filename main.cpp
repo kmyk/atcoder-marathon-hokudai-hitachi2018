@@ -698,40 +698,60 @@ quadratic_pseudo_boolean_function_term_list solve(int n, int k, vector<term_t> c
     }
 
     // construct
-    while (not f1.empty()) {
-        // trivial part
+    auto do_trivial = [&](term_t const & t) {
+        if (t.v.size() <= 2) {
+            g.use_term(t);
+            return true;
+        } else if (t.c < 0) {
+            g.reduce_negative_monomial(t);
+            return true;
+        } else {
+            return false;
+        }
+    };
+    {  // trivial part
         vector<term_t> f2;
         for (auto const & t : f1) {
-            if (t.v.size() <= 2) {
-                g.use_term(t);
-            } else if (t.c < 0) {
-                g.reduce_negative_monomial(t);
-            } else {
+            if (not do_trivial(t)) {
                 f2.push_back(t);
             }
         }
         f1.swap(f2);
-        if (f1.empty()) break;
-
-        if (bernoulli_distribution(0.5)(gen)) {
-            int x_1 = f1.back().v.back();
-            int w_1 = g.new_variable();
-            int sum_c = 0;
-            for (auto & t : f1) {
-                if (find(ALL(t.v), x_1) != t.v.end()) {
-                    sum_c += abs(t.c);
-                    if (sum_c >= 300) break;
-                    t = g.split_common_parts(t, x_1, w_1);
-                }
+    }
+    while (not f1.empty()) {
+        map<int, int> cnt;
+        for (auto const & t : f1) {
+            for (int x_i : t.v) {
+                ++ cnt[x_i];
             }
-        } else {
-            auto t = f1.back();
-            f1.pop_back();
-            shuffle(ALL(t.v), gen);
-            if (bernoulli_distribution(0.99)(gen)) {
+        }
+        int x_1 = cnt.begin()->first;
+        for (auto it : cnt) {
+            if (cnt[x_1] < it.second) {
+                x_1 = it.first;
+            }
+        }
+        if (cnt[x_1] <= 5) {
+            for (auto const & t : f1) {
                 g.simply_reduce_positive_monomial(t);
+            }
+            break;
+        }
+        int w_1 = g.new_variable();
+        int sum_c = 0;
+        for (int k = 0; k < (int)f1.size(); ++ k) {
+            auto t = f1[k];
+            if (find(ALL(t.v), x_1) == t.v.end()) continue;
+            sum_c += abs(t.c);
+            t = g.split_common_parts(t, x_1, w_1);
+            if (do_trivial(t)) {
+                if (k != f1.size() - 1) {
+                    swap(f1[k], f1.back());
+                }
+                f1.pop_back();
+                -- k;
             } else {
-                g.reduce_higher_order_clique(t);
+                f1[k] = t;
             }
         }
     }
